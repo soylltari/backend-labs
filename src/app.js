@@ -2,6 +2,7 @@ const express = require("express");
 const app = express();
 
 const userRoutes = require("./routes/user.route");
+const categoryRoutes = require("./routes/category.route");
 
 app.use(express.json());
 
@@ -18,6 +19,8 @@ app.get("/healthcheck", (req, res) => {
 
 app.use("/user", userRoutes);
 app.use("/users", userRoutes);
+app.use("/category", categoryRoutes);
+app.use("/categories", categoryRoutes);
 
 app.listen(3000, () => {
   console.log("Server listening on port 3000");
