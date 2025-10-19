@@ -4,7 +4,7 @@ const data = require("../data/data.js");
 
 router.post("/", (req, res) => {
   const { name } = req.body;
-  const newCategory = data.createUser(name);
+  const newCategory = data.createCategory(name);
   res.status(201).json(newCategory);
 });
 
