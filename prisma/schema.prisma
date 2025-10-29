@@ -13,3 +13,49 @@ datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
 }
+
+// ORM models
+model User {
+  id        Int      @id @default(autoincrement())
+  name      String   @unique @db.VarChar(128) // db.String(128), unique=True, nullable=False
+  
+  records   Record[]
+  
+  account   Account?
+
+  @@map("user") // __tablename__ = "user"
+}
+
+model Category {
+  id        Int      @id @default(autoincrement())
+  name      String   @unique @db.VarChar(128)
+  
+  records   Record[]
+  
+  @@map("category")
+}
+
+model Record {
+  id          Int       @id @default(autoincrement())
+  sum         Float     @db.Real // db.Float(precision=2)
+  createdAt   DateTime  @default(now()) @map("created_at") // db.TIMESTAMP, server_default=func.now()
+
+  userId      Int
+  user        User      @relation(fields: [userId], references: [id]) // back_populates="record"
+
+  categoryId  Int
+  category    Category  @relation(fields: [categoryId], references: [id]) // back_populates="record"
+  
+  @@map("record")
+}
+
+model Account {
+  id        Int     @id @default(autoincrement())
+  balance   Float   @db.Real
+  
+  // Зв'язок 1-до-1 з користувачем
+  userId    Int     @unique
+  user      User    @relation(fields: [userId], references: [id])
+  
+  @@map("account")
+}
