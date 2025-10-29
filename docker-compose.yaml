@@ -9,3 +9,16 @@ services:
       - PORT=3000
     ports:
       - "3000:3000"
+
+  db:
+    image: postgres:15.4-alpine3.18
+    environment:
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data/
+    ports:
+      - "5432:5432"
+
+volumes:
+  postgres_data:
