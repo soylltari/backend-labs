@@ -2,50 +2,79 @@ const express = require("express");
 const router = express.Router();
 const data = require("../data/data.js");
 
-router.post("/", (req, res) => {
+const validate = require("../middlewares/validation.middleware.js");
+const { RecordCreateSchema } = require("../schemas/api.schemas.js");
+
+router.post("/", validate(RecordCreateSchema), async (req, res) => {
   const { userId, categoryId, amount } = req.body;
   try {
-    const newRecord = data.createRecord(userId, categoryId, amount);
-    if (!newRecord) {
-      return res
-        .status(400)
-        .json({ error: "Error creating record. Please check the data." });
-    }
+    const newRecord = await data.createRecord(userId, categoryId, amount);
+
     res.status(201).json(newRecord);
   } catch (error) {
-    res.status(500).json({ error: "Server error while creating a record." });
+    if (error.message.includes("Insufficient funds.")) {
+      return res.status(400).json({ error: error.message });
+    }
+
+    console.error("Error creating record:", error);
+    res.status(500).json({
+      error: "Server error when creating a record.",
+      details: error.message,
+    });
   }
 });
 
-router.get("/", (req, res) => {
-  const { user_id, category_id } = req.query;
-  const record = data.getFilteredRecords(user_id, category_id);
-  if (!user_id && !category_id) {
-    return res
-      .status(404)
-      .json({
+router.get("/", async (req, res) => {
+  try {
+    const { user_id, category_id } = req.query;
+
+    if (!user_id && !category_id) {
+      return res.status(400).json({
         error:
-          "At least one parameter must be specified for filtering: user_id and/or category_id.",
+          "You must specify at least one parameter for filtering: user_id and/or category_id.",
       });
+    }
+
+    const records = await data.getFilteredRecords(user_id, category_id);
+
+    res.status(200).json(records);
+  } catch (error) {
+    res.status(500).json({ error: "Server error when filtering records." });
   }
-  res.status(200).json(record);
 });
 
-router.get("/:id", (req, res) => {
-  const record = data.getRecordByID(req.params.id);
-  if (!record) {
-    return res.status(404).json({ error: "Record is not found" });
+router.get("/:id", async (req, res) => {
+  try {
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) return res.status(400).json({ error: "Invalid record ID." });
+
+    const record = await data.getRecordByID(id);
+
+    if (!record) {
+      return res.status(404).json({ error: "No record found." });
+    }
+    res.status(200).json(record);
+  } catch (error) {
+    res.status(500).json({ error: "Error while receiving a record." });
   }
-  res.status(200).json(record);
 });
 
 router.delete("/:id", async (req, res) => {
-  const wasDeleted = data.deleteRecord(req.params.id);
+  try {
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) return res.status(400).json({ error: "Invalid record ID." });
 
-  if (!wasDeleted) {
-    return res.status(404).json({ error: "Record is not found" });
-  } else {
-    res.json({ message: "Record was deleted successfully" });
+    const wasDeleted = await data.deleteRecord(id);
+
+    if (!wasDeleted) {
+      return res.status(404).json({ error: "No record found." });
+    } else {
+      res.json({ message: "The record was successfully deleted." });
+    }
+  } catch (error) {
+    res
+      .status(500)
+      .json({ error: "Error deleting a record.", details: error.message });
   }
 });
 

@@ -1,121 +1,174 @@
-let users = {
-  d1asd1: { id: "d1asd1", name: "Test1" },
-  a1sd5d: { id: "a1sd5d", name: "Test2" },
-};
-let categories = {
-  eec9a34b: { id: "eec9a34b", name: "Food" },
-  ff53375f: { id: "ff53375f", name: "Travel" },
-};
-let records = [
-  {
-    id: "5b3bef80",
-    userId: "d1asd1",
-    categoryId: "eec9a34b",
-    date: "2025-10-18T10:00:00Z",
-    amount: 518,
-  },
-  {
-    id: "36b6f119",
-    userId: "d1asd1",
-    categoryId: "ff53375f",
-    date: "2025-10-18T11:00:00Z",
-    amount: 250,
-  },
-  {
-    id: "b881292c",
-    userId: "a1sd5d",
-    categoryId: "ff53375f",
-    date: "2025-10-19T12:00:00Z",
-    amount: 1000,
-  },
-];
+const { PrismaClient } = require("@prisma/client");
 
-const { v4: uuidv4 } = require("uuid");
+const prisma = new PrismaClient();
 
-// === USER ===
-const createUser = (name) => {
-  const id = uuidv4();
-  const newUser = { id, name };
-  users[id] = newUser;
+// === USER & ACCOUNT ===
+
+const createUser = async (name) => {
+  const newUser = await prisma.$transaction(async (tx) => {
+    const user = await tx.user.create({ data: { name } });
+    await tx.account.create({ data: { balance: 0, userId: user.id } });
+    return user;
+  });
   return newUser;
 };
 
 const getUsers = () => {
-  return Object.values(users);
+  return prisma.user.findMany();
 };
 
 const getUserByID = (id) => {
-  return users[id];
+  return prisma.user.findUnique({ where: { id: parseInt(id) } });
 };
 
 const deleteUser = (id) => {
-  if (users[id]) {
-    delete users[id];
-    return true;
+  const uId = parseInt(id);
+
+  return prisma.$transaction(async (tx) => {
+    await tx.record.deleteMany({
+      where: { userId: uId },
+    });
+
+    await tx.account.delete({
+      where: { userId: uId },
+    });
+
+    const deletedUser = await tx.user.delete({
+      where: { id: uId },
+    });
+
+    return deletedUser;
+  });
+};
+
+const getAccountBalance = (userId) => {
+  return prisma.account.findUnique({
+    where: { userId: parseInt(userId) },
+    select: { balance: true },
+  });
+};
+
+// === INCOME ACCOUNTING (Deposit) ===
+
+const depositToAccount = async (userId, amount) => {
+  const depositAmount = parseFloat(amount);
+  const id = parseInt(userId);
+
+  if (depositAmount <= 0) {
+    throw new Error("The deposit amount must be positive.");
   }
-  return false;
+
+  return prisma.account.update({
+    where: { userId: id },
+    data: { balance: { increment: depositAmount } },
+  });
 };
 
 // === CATEGORY ===
+
 const createCategory = (name) => {
-  const id = uuidv4();
-  const newCategory = { id, name };
-  categories[id] = newCategory;
-  return newCategory;
+  return prisma.category.create({ data: { name } });
 };
 
 const getCategories = () => {
-  return Object.values(categories);
+  return prisma.category.findMany();
 };
 
-const getCategoryByID = (id) => {
-  return categories[id];
-};
+const deleteCategory = async (id) => {
+  const cId = parseInt(id);
 
-const deleteCategory = (id) => {
-  if (categories[id]) {
-    delete categories[id];
-    return true;
+  const recordUsingCategory = await prisma.record.findFirst({
+    where: { categoryId: cId },
+  });
+
+  if (recordUsingCategory) {
+    throw new Error(
+      "You cannot delete a category because it is used in records."
+    );
   }
-  return false;
+
+  return prisma.category.delete({
+    where: { id: cId },
+  });
 };
 
 // === RECORD ===
-const createRecord = (userId, categoryId, amount) => {
-  const id = uuidv4();
-  const newRecord = {
-    id,
-    userId,
-    categoryId,
-    date: new Date().toISOString(),
-    amount: parseFloat(amount),
-  };
-  records.push(newRecord);
-  return newRecord;
-};
 
-const getRecordByID = (id) => {
-  return records.find((record) => record.id === id);
+const createRecord = async (userId, categoryId, amount) => {
+  const expenseAmount = parseFloat(amount);
+  const uId = parseInt(userId);
+  const cId = parseInt(categoryId);
+
+  if (expenseAmount <= 0) {
+    throw new Error("The amount of the expense must be positive.");
+  }
+
+  return prisma.$transaction(async (tx) => {
+    const account = await tx.account.findUnique({ where: { userId: uId } });
+    if (!account) throw new Error("User account not found.");
+
+    const newBalance = account.balance - expenseAmount;
+    if (newBalance < 0) {
+      throw new Error(
+        "Insufficient funds on the account. The operation is canceled."
+      );
+    }
+
+    await tx.account.update({
+      where: { userId: uId },
+      data: { balance: newBalance },
+    });
+
+    return tx.record.create({
+      data: { userId: uId, categoryId: cId, sum: expenseAmount },
+    });
+  });
 };
 
 const getFilteredRecords = (userId, categoryId) => {
-  let filtered = records;
+  const uId = userId ? parseInt(userId) : undefined;
+  const cId = categoryId ? parseInt(categoryId) : undefined;
 
-  if (userId) {
-    filtered = filtered.filter((record) => record.userId === userId);
-  }
+  const where = {};
+  if (uId) where.userId = uId;
+  if (cId) where.categoryId = cId;
 
-  if (categoryId) {
-    filtered = filtered.filter((record) => record.categoryId === categoryId);
-  }
+  return prisma.record.findMany({ where });
+};
 
-  return filtered;
+const getRecordByID = (id) => {
+  return prisma.record.findUnique({
+    where: {
+      id: id,
+    },
+  });
 };
 
 const deleteRecord = (id) => {
-  const initialLength = records.length;
-  records = records.filter((record) => record.id !== id);
-  return records.length < initialLength;
+  const recordId = parseInt(id);
+
+  if (isNaN(recordId)) {
+    throw new Error("Invalid record ID.");
+  }
+
+  return prisma.$transaction(async (tx) => {
+    const record = await tx.record.findUnique({
+      where: { id: recordId },
+    });
+
+    if (!record) {
+      return null;
+    }
+    await tx.record.delete({
+      where: { id: recordId },
+    });
+    await tx.account.update({
+      where: { userId: record.userId },
+      data: { balance: { increment: record.sum } },
+    });
+
+    return true;
+  });
 };
 
 module.exports = {
@@ -123,12 +176,13 @@ module.exports = {
   getUsers,
   getUserByID,
   deleteUser,
+  getAccountBalance,
+  depositToAccount,
   createCategory,
   getCategories,
-  getCategoryByID,
   deleteCategory,
   createRecord,
-  getRecordByID,
   getFilteredRecords,
+  getRecordByID,
   deleteRecord,
 };
