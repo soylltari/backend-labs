@@ -13,8 +13,11 @@ RUN npm install
 # Copy the rest of our app into the container
 COPY . .
 
+# Generate Prisma client
+RUN npx prisma generate
+
 # Open port 3000
 EXPOSE 3000
 
 # Run the app
-CMD ["npm", "start"]
+CMD ["sh", "-c", "npx prisma migrate deploy && npm start"]
