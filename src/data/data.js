@@ -31,7 +31,7 @@ const deleteUser = (id) => {
       where: { userId: uId },
     });
 
-    await tx.account.delete({
+    await tx.account.deleteMany({
       where: { userId: uId },
     });
 
@@ -212,7 +212,7 @@ const deleteCategory = async (id) => {
     );
   }
 
-  const deletedCategory = await prisma.category.delete({
+  const deletedCategory = await prisma.category.deleteMany({
     where: {
       id: categoryId,
     },
