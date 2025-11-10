@@ -4,21 +4,23 @@ const prisma = new PrismaClient();
 
 // === USER & ACCOUNT ===
 
-const createUser = async (name) => {
-  const newUser = await prisma.$transaction(async (tx) => {
-    const user = await tx.user.create({ data: { name } });
-    await tx.account.create({ data: { balance: 0, userId: user.id } });
-    return user;
-  });
-  return newUser;
-};
-
 const getUsers = () => {
-  return prisma.user.findMany();
+  return prisma.user.findMany({
+    select: {
+      id: true,
+      email: true,
+    },
+  });
 };
 
 const getUserByID = (id) => {
-  return prisma.user.findUnique({ where: { id: parseInt(id) } });
+  return prisma.user.findUnique({
+    where: { id: parseInt(id) },
+    select: {
+      id: true,
+      email: true,
+    },
+  });
 };
 
 const deleteUser = (id) => {
@@ -48,70 +50,52 @@ const getAccountBalance = (userId) => {
   });
 };
 
-// === INCOME ACCOUNTING (Deposit) ===
-
-const depositToAccount = async (userId, amount) => {
+const depositToAccount = (userId, amount) => {
+  const uId = parseInt(userId);
   const depositAmount = parseFloat(amount);
-  const id = parseInt(userId);
 
-  if (depositAmount <= 0) {
-    throw new Error("The deposit amount must be positive.");
-  }
+  return prisma.$transaction(async (tx) => {
+    const userAccount = await tx.account.findUnique({
+      where: { userId: uId },
+    });
 
-  return prisma.account.update({
-    where: { userId: id },
-    data: { balance: { increment: depositAmount } },
+    if (!userAccount) {
+      throw new Error("User account not found.");
+    }
+
+    const newBalance = userAccount.balance + depositAmount;
+
+    return tx.account.update({
+      where: { userId: uId },
+      data: { balance: newBalance },
+    });
   });
 };
 
-// === CATEGORY ===
+// === RECORDS ===
 
-const createCategory = (name) => {
-  return prisma.category.create({ data: { name } });
-};
-
-const getCategories = () => {
-  return prisma.category.findMany();
-};
-
-const deleteCategory = async (id) => {
-  const cId = parseInt(id);
-
-  const recordUsingCategory = await prisma.record.findFirst({
-    where: { categoryId: cId },
-  });
-
-  if (recordUsingCategory) {
-    throw new Error(
-      "You cannot delete a category because it is used in records."
-    );
-  }
-
-  return prisma.category.delete({
-    where: { id: cId },
-  });
-};
-
-// === RECORD ===
-
-const createRecord = async (userId, categoryId, amount) => {
-  const expenseAmount = parseFloat(amount);
+const createRecord = (userId, categoryId, amount) => {
   const uId = parseInt(userId);
   const cId = parseInt(categoryId);
+  const expenseAmount = parseFloat(amount);
 
   if (expenseAmount <= 0) {
-    throw new Error("The amount of the expense must be positive.");
+    throw new Error("Amount must be a positive number.");
   }
 
   return prisma.$transaction(async (tx) => {
-    const account = await tx.account.findUnique({ where: { userId: uId } });
-    if (!account) throw new Error("User account not found.");
+    const userAccount = await tx.account.findUnique({
+      where: { userId: uId },
+    });
 
-    const newBalance = account.balance - expenseAmount;
+    if (!userAccount) {
+      throw new Error("User account not found.");
+    }
+
+    const newBalance = userAccount.balance - expenseAmount;
+
     if (newBalance < 0) {
-      throw new Error(
-        "Insufficient funds on the account. The operation is canceled."
-      );
+      throw new Error("Insufficient funds.");
     }
 
     await tx.account.update({
@@ -125,27 +109,34 @@ const createRecord = async (userId, categoryId, amount) => {
   });
 };
 
-const getFilteredRecords = (userId, categoryId) => {
-  const uId = userId ? parseInt(userId) : undefined;
+const getFilteredRecords = (authenticatedUserId, categoryId) => {
+  const uId = parseInt(authenticatedUserId);
   const cId = categoryId ? parseInt(categoryId) : undefined;
 
-  const where = {};
-  if (uId) where.userId = uId;
-  if (cId) where.categoryId = cId;
+  const where = { userId: uId };
+
+  if (cId) {
+    where.categoryId = cId;
+  }
 
   return prisma.record.findMany({ where });
 };
 
-const getRecordByID = (id) => {
+const getRecordByID = (id, authenticatedUserId) => {
+  const recordId = parseInt(id);
+  const uId = parseInt(authenticatedUserId);
+
   return prisma.record.findUnique({
     where: {
-      id: id,
+      id: recordId,
+      userId: uId,
     },
   });
 };
 
-const deleteRecord = (id) => {
+const deleteRecord = (id, authenticatedUserId) => {
   const recordId = parseInt(id);
+  const uId = parseInt(authenticatedUserId);
 
   if (isNaN(recordId)) {
     throw new Error("Invalid record ID.");
@@ -153,36 +144,95 @@ const deleteRecord = (id) => {
 
   return prisma.$transaction(async (tx) => {
     const record = await tx.record.findUnique({
-      where: { id: recordId },
+      where: {
+        id: recordId,
+        userId: uId,
+      },
     });
 
     if (!record) {
       return null;
     }
+
+    const userAccount = await tx.account.findUnique({
+      where: { userId: uId },
+    });
+
+    if (!userAccount) {
+      throw new Error("User account not found during record deletion.");
+    }
+
+    const newBalance = userAccount.balance + record.sum;
+
     await tx.record.delete({
       where: { id: recordId },
     });
+
     await tx.account.update({
-      where: { userId: record.userId },
-      data: { balance: { increment: record.sum } },
+      where: { userId: uId },
+      data: { balance: newBalance },
     });
 
     return true;
   });
 };
 
+// === CATEGORIES ===
+
+const getCategories = () => {
+  return prisma.category.findMany();
+};
+
+const getCategoryByID = (id) => {
+  return prisma.category.findUnique({
+    where: {
+      id: parseInt(id),
+    },
+  });
+};
+
+const createCategory = (name) => {
+  return prisma.category.create({
+    data: {
+      name: name,
+    },
+  });
+};
+
+const deleteCategory = async (id) => {
+  const categoryId = parseInt(id);
+
+  const relatedRecords = await prisma.record.count({
+    where: { categoryId: categoryId },
+  });
+
+  if (relatedRecords > 0) {
+    throw new Error(
+      `Cannot delete category. ${relatedRecords} record(s) are associated with it.`
+    );
+  }
+
+  const deletedCategory = await prisma.category.delete({
+    where: {
+      id: categoryId,
+    },
+  });
+
+  return deletedCategory;
+};
+
 module.exports = {
-  createUser,
   getUsers,
   getUserByID,
   deleteUser,
   getAccountBalance,
   depositToAccount,
-  createCategory,
-  getCategories,
-  deleteCategory,
   createRecord,
   getFilteredRecords,
   getRecordByID,
   deleteRecord,
+  getCategories,
+  getCategoryByID,
+  createCategory,
+  deleteCategory,
 };
