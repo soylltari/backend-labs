@@ -1,12 +1,17 @@
 const express = require("express");
 const router = express.Router();
+const authMiddleware = require("../middlewares/auth.middleware");
 const data = require("../data/data.js");
 
 const validate = require("../middlewares/validation.middleware.js");
 const { RecordCreateSchema } = require("../schemas/api.schemas.js");
 
+router.use(authMiddleware);
+
 router.post("/", validate(RecordCreateSchema), async (req, res) => {
-  const { userId, categoryId, amount } = req.body;
+  const { categoryId, amount } = req.body;
+  const userId = req.userId;
+
   try {
     const newRecord = await data.createRecord(userId, categoryId, amount);
 
@@ -26,14 +31,8 @@ router.post("/", validate(RecordCreateSchema), async (req, res) => {
 
 router.get("/", async (req, res) => {
   try {
-    const { user_id, category_id } = req.query;
-
-    if (!user_id && !category_id) {
-      return res.status(400).json({
-        error:
-          "You must specify at least one parameter for filtering: user_id and/or category_id.",
-      });
-    }
+    const user_id = req.userId;
+    const { category_id } = req.query;
 
     const records = await data.getFilteredRecords(user_id, category_id);
 
@@ -46,9 +45,11 @@ router.get("/", async (req, res) => {
 router.get("/:id", async (req, res) => {
   try {
     const id = parseInt(req.params.id);
+    const authenticatedUserId = req.userId;
+
     if (isNaN(id)) return res.status(400).json({ error: "Invalid record ID." });
 
-    const record = await data.getRecordByID(id);
+    const record = await data.getRecordByID(id, authenticatedUserId);
 
     if (!record) {
       return res.status(404).json({ error: "No record found." });
@@ -62,9 +63,11 @@ router.get("/:id", async (req, res) => {
 router.delete("/:id", async (req, res) => {
   try {
     const id = parseInt(req.params.id);
+    const authenticatedUserId = req.userId;
+
     if (isNaN(id)) return res.status(400).json({ error: "Invalid record ID." });
 
-    const wasDeleted = await data.deleteRecord(id);
+    const wasDeleted = await data.deleteRecord(id, authenticatedUserId);
 
     if (!wasDeleted) {
       return res.status(404).json({ error: "No record found." });
@@ -77,5 +80,4 @@ router.delete("/:id", async (req, res) => {
       .json({ error: "Error deleting a record.", details: error.message });
   }
 });
-
 module.exports = router;
