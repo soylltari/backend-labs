@@ -14,15 +14,17 @@ datasource db {
 }
 
 // ORM models
+// backend-lab/prisma/schema.prisma
+
 model User {
   id        Int      @id @default(autoincrement())
-  name      String   @unique @db.VarChar(128) // db.String(128), unique=True, nullable=False
+  email     String   @unique @db.VarChar(128) 
+  password  String   @db.VarChar(255) 
   
   records   Record[]
-  
   account   Account?
 
-  @@map("user") // __tablename__ = "user"
+  @@map("user") 
 }
 
 model Category {
